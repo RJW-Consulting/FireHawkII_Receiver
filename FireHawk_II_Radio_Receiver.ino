@@ -47,14 +47,26 @@ void setDataFormat(uint8_t address, String format)
   }
 }
 
+bool commandWaiting = false;
+
 void sendCommand(uint8_t to, String command)
 {
-  //manager.sendtoWait((uint8_t *) command.c_str(), (uint8_t) command.length(), to);
+  if (!manager.sendtoWait((uint8_t *) command.c_str(), (uint8_t) command.length()+1, to))
+  {
+    Serial.print("Send command to drone ");
+    Serial.print(to, DEC);
+    Serial.println(" failed.");
+    commandWaiting = true;
+  }
+  else
+  {
+    commandWaiting = false;
+  }
 }
 
 void sendFormatStringRequest(uint8_t to)
 {
-  String command = "df\n";
+  String command = "df ";
   sendCommand(to, command);
 }
 
@@ -210,14 +222,49 @@ void setup() {
   rf95.setTxPower(20, false);
 }
 
+int toDrone = 1;
+String command = "";
+
 void loop() {
+  while (Serial.available() > 0) {
+
+    // look for the next valid integer in the incoming serial stream:
+    int inchar = Serial.read();
+
+    if ((inchar == '\r') || (inchar == '\n'))
+    {
+      if ((command == "1") || (command == "2"))
+      {
+        toDrone = command.toInt();
+        Serial.print("Commands directed to drone ");
+        Serial.println(command);
+        command = "";
+      }
+      else
+      {
+        Serial.print("Sending command to drone ");
+        Serial.print(toDrone,DEC);
+        Serial.print(": ");
+        Serial.println(command);
+        sendCommand((uint8_t)toDrone, command);
+        command = "";
+      }
+    }
+    else
+    {
+      command += (char) inchar;
+    }
+  }
+    
+    
+  //Serial.println("Checking for radio message");
   if (manager.available()) {
     // Should be a message for us now
     uint8_t len = sizeof(buf);
     uint8_t from;
     String dataString;
     String formatString("");
-    Serial.println("About to receive");
+    //Serial.println("About to receive");
     if (manager.recvfromAck(buf, &len, &from))
     {
       switch ((char) *buf)
@@ -234,6 +281,18 @@ void loop() {
           Serial.print(dataString);
           Serial.println(" */"); 
           break;
+        case 'R':
+          Serial.print("Response from drone ");
+          Serial.print(from,DEC);
+          Serial.print(": ");
+          Serial.println((char *) buf+1); 
+          break;
+      }
+      // retry command after radio message received from Drone
+      if (commandWaiting)
+      {
+        delay(100);
+        sendCommand((uint8_t)toDrone, command);
       }
 
     } 
@@ -242,4 +301,5 @@ void loop() {
       Serial.println("Receive failed");
     }
   }
+ 
 }
