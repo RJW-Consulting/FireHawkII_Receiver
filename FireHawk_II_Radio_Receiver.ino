@@ -17,9 +17,13 @@
 #define RFM95_INT   3
 #define RFM95_RST   4
 
+#define MAX_COMMAND_RETRY 5
+
 #define DRONE_1_ADDRESS 1
 #define DRONE_2_ADDRESS 2
 #define STATION_ADDRESS 5
+
+int commandRetry = 0;
 
 // Change to 434.0 or other frequency, must match RX's freq!
 #define RF95_FREQ 915.0
@@ -55,12 +59,17 @@ void sendCommand(uint8_t to, String command)
   {
     Serial.print("Send command to drone ");
     Serial.print(to, DEC);
+    Serial.print("\"");
+    Serial.print(command);
+    Serial.print("\"");
     Serial.println(" failed.");
     commandWaiting = true;
+    commandRetry--;
   }
   else
   {
     commandWaiting = false;
+    commandRetry = 0;
   }
 }
 
@@ -246,8 +255,9 @@ void loop() {
         Serial.print(toDrone,DEC);
         Serial.print(": ");
         Serial.println(command);
-        sendCommand((uint8_t)toDrone, command);
-        command = "";
+        commandRetry = MAX_COMMAND_RETRY;
+        commandWaiting = true;
+        //sendCommand((uint8_t)toDrone, command);
       }
     }
     else
@@ -272,6 +282,8 @@ void loop() {
         case 'F':
           formatString += (char *) buf+1;
           setDataFormat(from, formatString);
+          command = "";
+          commandRetry = 0;
           break;
         case 'D':
           dataString = formatDataPacket(from, buf);
@@ -286,14 +298,19 @@ void loop() {
           Serial.print(from,DEC);
           Serial.print(": ");
           Serial.println((char *) buf+1); 
+          commandRetry = 0;
+          command = "";
           break;
       }
-      // retry command after radio message received from Drone
-      if (commandWaiting)
+      // send command after radio message received from Drone
+      if (commandWaiting && commandRetry)
       {
-        delay(100);
+        int waittime = random(50,400);
+        delay(waittime);
         sendCommand((uint8_t)toDrone, command);
       }
+      if (!commandRetry)
+        command = "";
 
     } 
     else 
@@ -301,5 +318,4 @@ void loop() {
       Serial.println("Receive failed");
     }
   }
- 
 }
