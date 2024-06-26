@@ -1,3 +1,5 @@
+
+
 // Feather9x_RX
 // -*- mode: C++ -*-
 // Example sketch showing how to create a simple messaging client (receiver)
@@ -7,6 +9,7 @@
 // It is designed to work with the other example Feather9x_TX
 
 #include <SPI.h>
+#include <RadioHead.h>
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>
 #include "RTClib.h"
@@ -26,7 +29,7 @@
 int commandRetry = 0;
 
 // Change to 434.0 or other frequency, must match RX's freq!
-#define RF95_FREQ 915.0
+#define RF95_FREQ 434
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -37,6 +40,8 @@ uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 
 String dataFormat_drone_1 = "";
 String dataFormat_drone_2 = "";
+
+String receiverVersion = "Receiver FW Version 1.0";
 
 void setDataFormat(uint8_t address, String format)
 {
@@ -198,7 +203,8 @@ void setup() {
   while (!Serial) delay(1);
   delay(100);
 
-  Serial.println("Feather LoRa RX Test!");
+  Serial.println("Firehawk II LoRa Receiver");
+  Serial.println(receiverVersion);
 
   // manual reset
   digitalWrite(RFM95_RST, LOW);
@@ -277,30 +283,33 @@ void loop() {
     //Serial.println("About to receive");
     if (manager.recvfromAck(buf, &len, &from))
     {
-      switch ((char) *buf)
+      if (from == toDrone)
       {
-        case 'F':
-          formatString += (char *) buf+1;
-          setDataFormat(from, formatString);
-          command = "";
-          commandRetry = 0;
-          break;
-        case 'D':
-          dataString = formatDataPacket(from, buf);
-          Serial.print("Drone ");
-          Serial.print(from,DEC);
-          Serial.print("/* ");
-          Serial.print(dataString);
-          Serial.println(" */"); 
-          break;
-        case 'R':
-          Serial.print("Response from drone ");
-          Serial.print(from,DEC);
-          Serial.print(": ");
-          Serial.println((char *) buf+1); 
-          commandRetry = 0;
-          command = "";
-          break;
+        switch ((char) *buf)
+        {
+          case 'F':
+            formatString += (char *) buf+1;
+            setDataFormat(from, formatString);
+            command = "";
+            commandRetry = 0;
+            break;
+          case 'D':
+            dataString = formatDataPacket(from, buf);
+            Serial.print("Drone ");
+            Serial.print(from,DEC);
+            Serial.print("/* ");
+            Serial.print(dataString);
+            Serial.println(" */"); 
+            break;
+          case 'R':
+            Serial.print("Response from drone ");
+            Serial.print(from,DEC);
+            Serial.print(": ");
+            Serial.println((char *) buf+1); 
+            commandRetry = 0;
+            command = "";
+            break;
+        }
       }
       // send command after radio message received from Drone
       if (commandWaiting && commandRetry)
