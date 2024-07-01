@@ -26,6 +26,14 @@
 #define DRONE_2_ADDRESS 2
 #define STATION_ADDRESS 5
 
+#define PACKET_TYPE_FORMAT 'F'
+#define PACKET_TYPE_DATA 'D'
+#define PACKET_TYPE_COMMAND_RESPONSE 'R'
+#define PACKET_TYPE_COMMAND 'C'
+#define PACKET_TYPE_PERMISSION_TO_TALK 'T'
+#define PACKET_TYPE_FINISHED_TALKING 'X'
+
+
 int commandRetry = 0;
 
 // Change to 434.0 or other frequency, must match RX's freq!
@@ -41,7 +49,7 @@ uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 String dataFormat_drone_1 = "";
 String dataFormat_drone_2 = "";
 
-String receiverVersion = "Receiver FW Version 1.0";
+String receiverVersion = "Receiver FW Version 1.2 (in process)";
 
 void setDataFormat(uint8_t address, String format)
 {
@@ -58,9 +66,24 @@ void setDataFormat(uint8_t address, String format)
 
 bool commandWaiting = false;
 
+#define MAX_PACKET_LENGTH 255
+uint8_t packetBuffer[MAX_PACKET_LENGTH];
+
+bool sendPacket(uint8_t to, char packetType, uint8_t *contents, uint8_t length)
+{
+  if (length > MAX_PACKET_LENGTH-1)
+  {
+    Serial.println(" ATTEMPT TO SEND OVERSIZED PACKET.");
+    return false;
+  }
+  packetBuffer[0] = (uint8_t)packetType;
+  memcpy(packetBuffer+1, contents, length);
+  return manager.sendtoWait(packetBuffer, length+1, to);
+}
+
 void sendCommand(uint8_t to, String command)
 {
-  if (!manager.sendtoWait((uint8_t *) command.c_str(), (uint8_t) command.length()+1, to))
+  if (!sendPacket(to, PACKET_TYPE_COMMAND, (uint8_t *) command.c_str(), (uint8_t) command.length()+1))
   {
     Serial.print("Send command to drone ");
     Serial.print(to, DEC);
@@ -194,6 +217,16 @@ String formatDataPacket(uint8_t address,uint8_t *packet)
   return dataString;
 }
 
+void led(bool state)
+{
+  if (state)
+    digitalWrite(LED_BUILTIN, HIGH);  // turn the LED on (HIGH is the voltage level)
+  else
+    digitalWrite(LED_BUILTIN, LOW);  // turn the LED off 
+}
+
+bool boxTalking = false;
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(RFM95_RST, OUTPUT);
@@ -235,12 +268,27 @@ void setup() {
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(20, false);
+  boxTalking = false;
 }
 
 int toDrone = 1;
 String command = "";
 
 void loop() {
+  /*
+  if (!boxTalking)
+  {
+    command = "";
+    if (sendPacket(toDrone, PACKET_TYPE_PERMISSION_TO_TALK, (unit8_t *) command.c_str(),1))
+    {
+      boxTalking = true;
+    }
+    else
+    {
+
+    }
+  }
+  */
   while (Serial.available() > 0) {
 
     // look for the next valid integer in the incoming serial stream:
@@ -275,6 +323,7 @@ void loop() {
     
   //Serial.println("Checking for radio message");
   if (manager.available()) {
+    led(true);
     // Should be a message for us now
     uint8_t len = sizeof(buf);
     uint8_t from;
@@ -287,13 +336,13 @@ void loop() {
       {
         switch ((char) *buf)
         {
-          case 'F':
+          case PACKET_TYPE_FORMAT:
             formatString += (char *) buf+1;
             setDataFormat(from, formatString);
             command = "";
             commandRetry = 0;
             break;
-          case 'D':
+          case PACKET_TYPE_DATA:
             dataString = formatDataPacket(from, buf);
             Serial.print("Drone ");
             Serial.print(from,DEC);
@@ -301,7 +350,7 @@ void loop() {
             Serial.print(dataString);
             Serial.println(" */"); 
             break;
-          case 'R':
+          case PACKET_TYPE_COMMAND_RESPONSE:
             Serial.print("Response from drone ");
             Serial.print(from,DEC);
             Serial.print(": ");
@@ -311,12 +360,16 @@ void loop() {
             break;
         }
       }
+      led(false);
+
       // send command after radio message received from Drone
       if (commandWaiting && commandRetry)
       {
         int waittime = random(50,400);
         delay(waittime);
+        led(true);
         sendCommand((uint8_t)toDrone, command);
+        led(false);      
       }
       if (!commandRetry)
         command = "";
